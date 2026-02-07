@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NCAA D1 Baseball Scoreboard</title>
+  <style>
+    :root {
+      --bg: #121212;
+      --card: #1e1e1e;
+      --text: #e6e6e6;
+      --muted: #9aa0a6;
+      --accent: #1f6feb;
+      --divider: #2a2a2a;
+      --winner-bg: #ffd900;
+      --chip-bg: #1a1a1a;
+      --chip-active: #222d3b;
+      --hl: #fff2a8;   /* search highlight */
+      --fav-color: #ffd700; /* gold for favorite star */
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--divider);
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+      z-index: 10;
+    }
+    header .title {
+      font-weight: 600;
+      font-size: 1.15rem;
+      white-space: nowrap;
+    }
+    header .actions {
+      display: grid;
+      grid-template-columns: 1fr auto auto auto;
+      gap: 8px;
+      align-items: center;
+      width: 100%;
+      max-width: 620px;
+    }
+    header .actions input[type="search"],
+  header .actions select,
+  header .actions input[type="date"]:not(.date-icon-input),
+  header .actions button {
+      background: var(--chip-bg);
+      border: 1px solid var(--divider);
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 0.95rem;
+      border-radius: 8px;
+    }
+    header .actions input[type="search"]::placeholder {
+      color: var(--muted);
+    }
+    header .actions button:hover { background: var(--chip-active); cursor: pointer; }
+
+  header .actions select {
+    min-width: 180px;
+  }
+
+  /* Icon-only date picker (mobile-friendly). The real input sits above the icon. */
+  .date-icon-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 38px;
+  }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  text-align: center;
+    width: 42px;
+    height: 38px;
+    padding: 0;
+    font-size: 1.1rem;
+    line-height: 1;
+    background: var(--chip-bg);
+    border: 1px solid var(--divider);
+    color: var(--text);
+    border-radius: 8px;
+    user-select: none;
+  }
+  .date-icon-wrap:hover .icon-btn { background: var(--chip-active); }
+
+  /* iOS/Safari can ignore clicks on fully transparent inputs; use tiny opacity + z-index */
+  .date-icon-input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+    /* Date chips */
+    .date-strip {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--divider);
+      background: var(--bg);
+    }
+    .date-chip {
+      flex: 0 0 auto;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: var(--chip-bg);
+      color: var(--text);
+      border: 1px solid var(--divider);
+      user-select: none;
+      white-space: nowrap;
+      font-size: 0.95rem;
+    }
+    .date-chip.active {
+      background: var(--chip-active);
+      border-color: var(--accent);
+      color: #eaf2ff;
+    }
+    .date-chip:hover { cursor: pointer; }
+
+    /* Section header */
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 12px 16px 4px;
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .section-header a {
+      color: var(--muted);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    .section-header a:hover { color: var(--text); }
+
+    /* Game list */
+    .games {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .game {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--divider);
+      background: var(--card);
+    }
+    .teams {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .team-row {
+      display: grid;
+      grid-template-columns: 28px 1fr auto auto; /* logo, name, favorite button, score */
+      align-items: center;
+      gap: 10px;
+    }
+    .team-row img.logo {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: #000;
+    }
+    .team-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 0.98rem;
+    }
+    .team-name mark {
+      background: var(--hl);
+      color: #000;
+      padding: 0 2px;
+      border-radius: 3px;
+    }
+    .fav-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 1.2rem;
+      cursor: pointer;
+      transition: color 0.2s;
+      padding: 0 4px;
+      line-height: 1;
+    }
+    .fav-btn:hover { color: var(--fav-color); }
+    .fav-btn.active { color: var(--fav-color); }
+
+    .team-score {
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: transparent;
+      font-variant-numeric: tabular-nums;
+      min-width: 36px;
+      text-align: center;
+    }
+    .team-score.winner {
+      background: var(--winner-bg);
+      color: #000;
+      font-weight: 700;
+    }
+
+    .game-meta {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      color: var(--muted);
+      font-size: 0.95rem;
+      gap: 8px;
+    }
+
+    .info {
+      padding: 16px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    /* Favorite section */
+    h3.favorite-header {
+      padding: 12px 16px 0;
+      margin: 0;
+      font-size: 1.05rem;
+      color: var(--fav-color);
+    }
+    .favorite-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px 12px;
+    }
+    .clear-fav-btn {
+      background: var(--chip-bg);
+      border: 1px solid var(--divider);
+      color: var(--text);
+      padding: 6px 10px;
+      font-size: 0.9rem;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .clear-fav-btn:hover { background: var(--chip-active); }
+
+    /* Container */
+    @media (min-width: 900px) {
+      .container {
+        max-width: 820px;
+        margin: 0 auto;
+        border-left: 1px solid var(--divider);
+        border-right: 1px solid var(--divider);
+        background: var(--bg);
+      }
+    }
+  
+
+/* Responsive header controls */
+@media (max-width: 640px) {
+  header { flex-direction: column; align-items: stretch; }
+  header .title { width: 100%; }
+  header .actions { width: 100%; max-width: none; grid-template-columns: 1fr; }
+  header .actions input[type="search"],
+  header .actions select,
+  header .actions button { width: 100%; }
+
+  .date-icon-wrap { width: 100%; }
+  .icon-btn { width: 100%; }
+  .date-icon-input { width: 100%; }
+
+  header .actions select { min-width: 0; }
+}
+</style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="title">NCAA &#9918; Scoreboard</div>
+      <div class="actions">
+        <input id="teamSearch" type="search" placeholder="Search team…" aria-label="Search team" />
+    <select id="confSelect" aria-label="Filter by conference"></select>
+        <span class="date-icon-wrap">
+          <button type="button" id="dateIconBtn" class="icon-btn" aria-label="Pick date">
+            📅
+          </button>
+          <input type="date" id="datePicker" class="date-icon-input" />
+        </span>
+        <button id="getScores">Get Scores</button>
+      </div>
+    </header>
+
+    <!-- Horizontal date chips -->
+    <nav class="date-strip" id="dateStrip" aria-label="Choose date"></nav>
+
+    
+
+    <!-- Games list -->
+    <ul class="games" id="gamesList"></ul>
+
+    <!-- Info area -->
+    <div class="info" id="info"></div>
+  </div>
+
+  <script>
+    // --- Config ---
+    const API_BASE = "https://site.api.espn.com/apis/site/v2/sports/baseball/college-baseball/scoreboard?dates=";
+
+    // --- State ---
+    let lastEvents = [];
+    let searchTerm = "";
+    let favoriteTeam = localStorage.getItem("favoriteTeam") || "";
+
+    // --- DOM refs ---
+    const teamSearch = document.getElementById("teamSearch");
+    const datePicker = document.getElementById("datePicker");
+    const getScoresBtn = document.getElementById("getScores");
+    const dateStrip = document.getElementById("dateStrip");
+    const gamesList = document.getElementById("gamesList");
+    const info = document.getElementById("info");
+
+    
+const confSelect = document.getElementById("confSelect");
+
+
+// --- Conference filter data (from Conference Teams List.txt) ---
+const CONFERENCE_TEAMS = {"Atlantic 10": ["Davidson", "Dayton", "Fordham", "George Mason", "George Washington", "La Salle", "Rhode Island", "Richmond", "Saint Joseph’s", "Saint Louis", "St. Bonaventure", "VCU"], "ACC": ["Boston College", "California", "Clemson", "Duke", "Florida State", "Georgia Tech", "Louisville", "Miami", "NC State", "North Carolina", "Notre Dame", "Pittsburgh", "Stanford", "Virginia", "Virginia Tech", "Wake Forest"], "America East": ["Albany", "Binghamton", "Bryant", "Maine", "New Jersey Tech", "UMass Lowell", "UMBC"], "American Athletic": ["Charlotte", "East Carolina", "Florida Atlantic", "Memphis", "Rice", "Tulane", "UAB", "South Florida", "UTSA", "Wichita State"], "Atlantic Sun": ["Austin Peay", "Bellarmine", "Central Arkansas", "Eastern Kentucky", "Florida Gulf Coast", "Jacksonville", "Lipscomb", "North Alabama", "North Florida", "Queens (NC)", "Stetson", "West Georgia"], "Big 12": ["Arizona", "Arizona State", "Baylor", "BYU", "Cincinnati", "Houston", "Kansas", "Kansas State", "Oklahoma State", "TCU", "Texas Tech", "UCF", "Utah", "West Virginia"], "Big East": ["Butler", "Connecticut", "Creighton", "Georgetown", "Seton Hall", "St. John’s", "Villanova", "Xavier"], "Big South": ["Charleston Southern", "Gardner-Webb", "High Point", "Longwood", "Presbyterian", "Radford", "UNC Asheville", "USC Upstate", "Winthrop"], "Big Ten": ["Illinois", "Indiana", "Iowa", "Maryland", "Michigan", "Michigan State", "Minnesota", "Nebraska", "Northwestern", "Ohio State", "Oregon", "Penn State", "Purdue", "Rutgers", "Southern California", "UCLA", "Washington"], "Big West": ["Cal Poly", "Cal State Fullerton", "Cal State Northridge", "CSU Bakersfield", "Hawaii", "Long Beach State", "UC Davis", "UC Irvine", "UC Riverside", "UC San Diego", "UC Santa Barbara"], "Conference USA": ["Dallas Baptist", "Delaware", "Florida International", "Jacksonville State", "Kennesaw State", "Liberty", "Louisiana Tech", "Middle Tennessee", "Missouri State", "New Mexico State", "Sam Houston", "Western Kentucky"], "Coastal": ["Campbell", "College of Charleston", "Elon", "Hofstra", "Monmouth", "North Carolina A&T", "Northeastern", "Stony Brook", "Towson", "UNC Wilmington", "William & Mary"], "Horizon": ["Milwaukee", "Northern Kentucky", "Oakland", "Wright State", "Youngstown State"], "Independent": ["Oregon State"], "Ivy League": ["Brown", "Columbia", "Cornell", "Dartmouth", "Harvard", "Pennsylvania", "Princeton", "Yale"], "Metro Atlantic": ["Canisius", "Fairfield", "Iona", "Manhattan", "Marist", "Merrimack", "Mount St. Mary’s", "Niagara", "Quinnipiac", "Rider", "Sacred Heart", "Saint Peter’s", "Siena"], "Mid-American": ["Ball State", "Bowling Green", "Central Michigan", "Eastern Michigan", "Kent State", "Miami (OH)", "Northern Illinois", "Ohio", "Toledo", "Massachusetts", "Western Michigan", "Akron"], "Missouri Valley": ["Belmont", "Bradley", "Evansville", "Illinois State", "Illinois-Chicago", "Indiana State", "Murray State", "Southern Illinois", "Valparaiso"], "Mountain West": ["Air Force", "Fresno State", "Grand Canyon", "Nevada", "New Mexico", "San Diego State", "San Jose State", "UNLV", "Washington State"], "Northeast": ["Central Connecticut", "Coppin State", "Delaware State", "Fairleigh Dickinson", "Le Moyne", "Long Island", "Mercyhurst", "New Haven", "Norfolk State", "Stonehill", "UMES", "Wagner"], "Ohio Valley": ["Eastern Illinois", "Lindenwood", "Little Rock", "Morehead State", "SIU Edwardsville", "Southeast Missouri State", "Southern Indiana", "Tennessee Tech", "Tennessee-Martin", "Western Illinois"], "Patriot": ["Army", "Bucknell", "Holy Cross", "Lafayette", "Lehigh", "Navy"], "SEC": ["Alabama", "Arkansas", "Auburn", "Florida", "Georgia", "Kentucky", "LSU", "Mississippi State", "Missouri", "Oklahoma", "Ole Miss", "South Carolina", "Tennessee", "Texas", "Texas A&M", "Vanderbilt"], "SoCon": ["East Tennessee State", "Mercer", "Samford", "The Citadel", "UNC Greensboro", "VMI", "Western Carolina", "Wofford"], "Southland": ["Houston Christian", "Incarnate Word", "Lamar", "McNeese", "New Orleans", "Nicholls", "Northwestern State", "Southeastern Louisiana", "Stephen F. Austin", "Texas A&M-Corpus Christi", "UT Rio Grande Valley"], "Summit": ["North Dakota State", "Northern Colorado", "Omaha", "Oral Roberts", "South Dakota State", "St. Thomas"], "Sun Belt": ["Appalachian State", "Arkansas State", "Coastal Carolina", "Georgia Southern", "Georgia State", "James Madison", "Marshall", "Old Dominion", "South Alabama", "Southern Miss", "Texas State", "Troy", "Louisiana", "UL Monroe"], "Southwestern Athletic": ["Alabama A&M", "Alabama State", "Alcorn State", "Arkansas-Pine Bluff", "Bethune-Cookman", "Florida A&M", "Grambling", "Jackson State", "Mississippi Valley State", "Prairie View", "Southern", "Texas Southern"], "Western Athletic": ["Abilene Christian", "California Baptist", "Utah Tech", "Sacramento State", "Tarleton", "UT Arlington", "Utah Valley"], "West Coast": ["Gonzaga", "Loyola Marymount", "Pacific", "Pepperdine", "Portland", "Saint Mary’s", "San Diego", "San Francisco", "Santa Clara", "Seattle"]};
+const CONF_SELECT_STORAGE_KEY = 'selectedConference';
+let selectedConference = localStorage.getItem(CONF_SELECT_STORAGE_KEY) || '';
+
+function normalizeTeamName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/’/g, "'")
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/st/g, 'saint')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const CONFERENCE_TEAM_SETS = Object.fromEntries(
+  Object.entries(CONFERENCE_TEAMS).map(([conf, teams]) => [
+    conf,
+    new Set((teams || []).map(normalizeTeamName))
+  ])
+);
+
+function eventInSelectedConference(ev) {
+  if (!selectedConference) return true;
+  const set = CONFERENCE_TEAM_SETS[selectedConference];
+  if (!set) return true;
+  const comp = ev?.competitions?.[0] || {};
+  const competitors = comp?.competitors || [];
+  const away = teamObj(competitors, 'away');
+  const home = teamObj(competitors, 'home');
+  const a = normalizeTeamName(away?.name);
+  const h = normalizeTeamName(home?.name);
+  return set.has(a) || set.has(h);
+}
+
+function filterEvents(events, q) {
+  const needle = (q || '').toLowerCase();
+  return (events || []).filter(ev => {
+    if (!eventInSelectedConference(ev)) return false;
+    if (!needle) return true;
+    const comp = ev?.competitions?.[0] || {};
+    const competitors = comp?.competitors || [];
+    const away = teamObj(competitors, 'away');
+    const home = teamObj(competitors, 'home');
+    const a = away?.name?.toLowerCase() || '';
+    const h = home?.name?.toLowerCase() || '';
+    return a.includes(needle) || h.includes(needle);
+  });
+}
+
+// --- Date helpers ---
+    function toYYYYMMDD(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return `${y}${m}${d}`;
+    }
+    function toISODateInputValue(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+    function fromISODateInputValue(str) {
+      const [y, m, d] = str.split("-").map(Number);
+      return new Date(y, m - 1, d);
+    }
+    function labelForChip(date, today) {
+      const sameDay = date.toDateString() === today.toDateString();
+      if (sameDay) return "TODAY";
+      const months = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+      return `${months[date.getMonth()]} ${date.getDate()}`;
+    }
+    function toOrdinal(n) {
+      if (!Number.isFinite(n)) return "";
+      const s = ["th", "st", "nd", "rd"], v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    }
+
+    // --- Date strip ---
+    function renderDateStrip(selectedDate) {
+      dateStrip.innerHTML = "";
+      const today = new Date();
+      for (let offset = -3; offset <= 3; offset++) {
+        const d = new Date(selectedDate);
+        d.setDate(d.getDate() + offset);
+        const chip = document.createElement("button");
+        chip.className = "date-chip" + (d.toDateString() === selectedDate.toDateString() ? " active" : "");
+        chip.textContent = labelForChip(d, today);
+        chip.title = d.toDateString();
+        chip.addEventListener("click", () => {
+          datePicker.value = toISODateInputValue(d);
+          updateScores(d);
+        });
+        dateStrip.appendChild(chip);
+      }
+    }
+
+    // --- API fetch ---
+    async function fetchScores(date) {
+      const url = API_BASE + toYYYYMMDD(date);
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      return Array.isArray(json.events) ? json.events : [];
+    }
+
+    // --- Data helpers ---
+    function teamObj(competitors, side) {
+      const c = competitors.find(c => (c.homeAway || "").toLowerCase() === side);
+      if (!c) return null;
+      const score = Number.isFinite(Number(c.score)) ? Number(c.score) : null;
+      const team = c.team || {};
+      return {
+        name: team.location || team.displayName || "Unknown",
+        logo: team.logo || "",
+        score
+      };
+    }
+
+    function statusTextFrom(comp) {
+      const st = comp?.status || {};
+      const type = st?.type || {};
+      const state = (type?.state || "").toLowerCase(); // pre | in | post
+      const shortDetail = type?.shortDetail || "";      // "Top 5th", "Final", "6:00 PM"
+      const period = st?.period;
+
+      if (state === "in") {
+        if (/\b(top|bottom)\b/i.test(shortDetail)) return shortDetail;
+        if (Number.isFinite(period)) return `In Progress · ${toOrdinal(period)}`;
+        return type?.description || "In Progress";
+      }
+      if (state === "pre") return shortDetail || "Scheduled";
+      if (state === "post") return shortDetail || "Final";
+      return shortDetail || type?.description || "TBD";
+    }
+
+    // --- Search highlight ---
+    function escapeHTML(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+    function highlightMatch(name, q) {
+      if (!q) return escapeHTML(name);
+      const lower = name.toLowerCase();
+      const idx = lower.indexOf(q);
+      if (idx === -1) return escapeHTML(name);
+      const before = name.slice(0, idx);
+      const middle = name.slice(idx, idx + q.length);
+      const after = name.slice(idx + q.length);
+      return `${escapeHTML(before)}<mark>${escapeHTML(middle)}</mark>${escapeHTML(after)}`;
+    }
+
+    // --- Favorite handling ---
+    function setFavorite(teamName) {
+      favoriteTeam = teamName;
+      localStorage.setItem("favoriteTeam", teamName);
+      renderGames(lastEvents);
+    }
+    function clearFavorite() {
+      favoriteTeam = "";
+      localStorage.removeItem("favoriteTeam");
+      renderGames(lastEvents);
+    }
+
+    // --- Render one game ---
+    function renderGame(event) {
+      const comp = event?.competitions?.[0] || {};
+      const competitors = comp?.competitors || [];
+      const away = teamObj(competitors, "away");
+      const home = teamObj(competitors, "home");
+      if (!away || !home) return null;
+
+      const statusText = statusTextFrom(comp);
+      const scoresAreNumbers = Number.isFinite(away.score) && Number.isFinite(home.score);
+      const awayWin = scoresAreNumbers && away.score > home.score;
+      const homeWin = scoresAreNumbers && home.score > away.score;
+
+      const li = document.createElement("li");
+      li.className = "game";
+
+      const teamsBlock = document.createElement("div");
+      teamsBlock.className = "teams";
+
+      // Build team rows (away then home)
+      [away, home].forEach(team => {
+        const row = document.createElement("div");
+        row.className = "team-row";
+
+        const logo = document.createElement("img");
+        logo.className = "logo";
+        logo.src = team.logo || "";
+        logo.alt = `${team.name} logo`;
+
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "team-name";
+        nameSpan.innerHTML = highlightMatch(team.name, searchTerm);
+
+        const favBtn = document.createElement("button");
+        favBtn.className = "fav-btn" + (favoriteTeam === team.name ? " active" : "");
+        favBtn.textContent = "★";
+        favBtn.title = favoriteTeam === team.name ? "Favorite" : "Set as Favorite";
+        favBtn.addEventListener("click", () => setFavorite(team.name));
+
+        const scoreSpan = document.createElement("span");
+        const isWinner = (team === away && awayWin) || (team === home && homeWin);
+        scoreSpan.className = "team-score" + (isWinner ? " winner" : "");
+        scoreSpan.textContent = Number.isFinite(team.score) ? String(team.score) : "";
+
+        row.appendChild(logo);
+        row.appendChild(nameSpan);
+        row.appendChild(favBtn);
+        row.appendChild(scoreSpan);
+
+        teamsBlock.appendChild(row);
+      });
+
+      const meta = document.createElement("div");
+      meta.className = "game-meta";
+      meta.textContent = statusText;
+
+      li.appendChild(teamsBlock);
+      li.appendChild(meta);
+
+      return li;
+    }
+
+    // --- Filtering ---
+    function filterEventsBySearch(events, q) {
+      if (!q) return events;
+      const needle = q.toLowerCase();
+      return events.filter(ev => {
+        const comp = ev?.competitions?.[0] || {};
+        const competitors = comp?.competitors || [];
+        const away = teamObj(competitors, "away");
+        const home = teamObj(competitors, "home");
+        const a = away?.name?.toLowerCase() || "";
+        const h = home?.name?.toLowerCase() || "";
+        return a.includes(needle) || h.includes(needle);
+      });
+    }
+
+    // --- Render list ---
+    function renderGames(events) {
+      gamesList.innerHTML = "";
+      const filtered = filterEvents(events, searchTerm);
+
+      if (!filtered.length) {
+        info.textContent = searchTerm
+          ? `No games found matching “${searchTerm}”.`
+          : "No games found for this date.";
+        return;
+      }
+      info.textContent = "";
+
+      // Favorite section (only if favorite has games on this date)
+      if (favoriteTeam) {
+        const favoriteGames = filtered.filter(ev => {
+          const comp = ev?.competitions?.[0] || {};
+          const competitors = comp?.competitors || [];
+          const away = teamObj(competitors, "away");
+          const home = teamObj(competitors, "home");
+          return away?.name === favoriteTeam || home?.name === favoriteTeam;
+        });
+
+        if (favoriteGames.length) {
+          const favHeader = document.createElement("h3");
+          favHeader.className = "favorite-header";
+          favHeader.textContent = `Favorite: ${favoriteTeam}`;
+          gamesList.appendChild(favHeader);
+
+          const favActions = document.createElement("div");
+          favActions.className = "favorite-actions";
+          const clearBtn = document.createElement("button");
+          clearBtn.className = "clear-fav-btn";
+          clearBtn.textContent = "Clear Favorite";
+          clearBtn.addEventListener("click", clearFavorite);
+          favActions.appendChild(clearBtn);
+          gamesList.appendChild(favActions);
+
+          favoriteGames.forEach(ev => {
+            const node = renderGame(ev);
+            if (node) gamesList.appendChild(node);
+          });
+        }
+      }
+
+      // Remaining games (skip those already shown in Favorite section)
+      filtered.forEach(ev => {
+        const comp = ev?.competitions?.[0] || {};
+        const competitors = comp?.competitors || [];
+        const away = teamObj(competitors, "away");
+        const home = teamObj(competitors, "home");
+        if (favoriteTeam && (away?.name === favoriteTeam || home?.name === favoriteTeam)) return;
+        const node = renderGame(ev);
+        if (node) gamesList.appendChild(node);
+      });
+    }
+
+    // --- Update flow ---
+    async function updateScores(date) {
+      info.textContent = "Loading scores…";
+      renderDateStrip(date);
+      try {
+        const events = await fetchScores(date);
+        lastEvents = events.slice();
+        renderGames(lastEvents);
+        info.textContent = "";
+      } catch (err) {
+        console.error(err);
+        info.textContent = "Failed to load scores. If this persists, try running from a local web server due to CORS.";
+      }
+    }
+
+    // --- Debounce ---
+    function debounce(fn, wait = 200) {
+      let t = null;
+      return (...args) => {
+        clearTimeout(t);
+        t = setTimeout(() => fn(...args), wait);
+      };
+    }
+
+    // --- Init ---
+    (function init() {
+
+  // Date picker: update scores when a new date is selected
+  if (datePicker) {
+    datePicker.addEventListener('change', () => {
+      const date = fromISODateInputValue(datePicker.value);
+      updateScores(date);
+    });
+  }
+  
+  const dateIconBtn = document.getElementById("dateIconBtn");
+  
+  dateIconBtn.addEventListener("click", () => {
+    if (datePicker.showPicker) {
+      datePicker.showPicker(); // Chrome, Edge, Safari
+    } else {
+      datePicker.focus(); // Firefox fallback
+    }
+  });
+
+
+  // Populate conference dropdown (and restore last selection)
+  (function initConferenceSelect() {
+    if (!confSelect) return;
+    confSelect.innerHTML = '';
+
+    const optAll = document.createElement('option');
+    optAll.value = '';
+    optAll.textContent = 'All conferences';
+    confSelect.appendChild(optAll);
+
+    Object.keys(CONFERENCE_TEAMS)
+      .sort((a,b)=>a.localeCompare(b))
+      .forEach(conf => {
+        const opt = document.createElement('option');
+        opt.value = conf;
+        opt.textContent = conf;
+        confSelect.appendChild(opt);
+      });
+
+    if (selectedConference && !CONFERENCE_TEAMS[selectedConference]) {
+      selectedConference = '';
+      localStorage.removeItem(CONF_SELECT_STORAGE_KEY);
+    }
+    confSelect.value = selectedConference;
+
+    confSelect.addEventListener('change', (e) => {
+      selectedConference = e.target.value || '';
+      if (selectedConference) {
+        localStorage.setItem(CONF_SELECT_STORAGE_KEY, selectedConference);
+      } else {
+        localStorage.removeItem(CONF_SELECT_STORAGE_KEY);
+      }
+      renderGames(lastEvents);
+    });
+  })();
+
+      const now = new Date();
+      datePicker.value = toISODateInputValue(now);
+
+      getScoresBtn.addEventListener("click", () => {
+        const date = fromISODateInputValue(datePicker.value);
+        updateScores(date);
+      });
+
+      teamSearch.addEventListener("input", debounce((e) => {
+        searchTerm = (e.target.value || "").trim().toLowerCase();
+        renderGames(lastEvents);
+      }, 150));
+
+      // Prevent Enter in search from triggering a form submit
+      teamSearch.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") e.preventDefault();
+      });
+
+      // Initial load
+      updateScores(now);
+    })();
+  </script>
+</body>
+</html>
