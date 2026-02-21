@@ -248,7 +248,15 @@
       gap: 8px;
       padding: 8px 16px 12px;
     }
-    .clear-fav-btn {
+    
+ .favorite-team-list {
+   color: var(--muted);
+   font-size: 0.9rem;
+   overflow: hidden;
+   text-overflow: ellipsis;
+   white-space: nowrap;
+ }
+.clear-fav-btn {
       background: var(--chip-bg);
       border: 1px solid var(--divider);
       color: var(--text);
@@ -286,6 +294,13 @@
 
   header .actions select { min-width: 0; }
 }
+  .game-meta .boxscore-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+  }
+  .game-meta .boxscore-link:hover { text-decoration: underline; }
+
 </style>
 </head>
 <body>
@@ -308,13 +323,6 @@
     <!-- Horizontal date chips -->
     <nav class="date-strip" id="dateStrip" aria-label="Choose date"></nav>
 
-    <!-- Section title with link -->
-    <div class="section-header">
-      <a href="https://d1baseball.com/rankings/">View Top 25 Rankings</a> &nbsp; | &nbsp;
-      <a href="https://d1baseball.com/conferences/">View Conference Standings</a>
-    </div>
-    
-
     <!-- Games list -->
     <ul class="games" id="gamesList"></ul>
 
@@ -324,12 +332,34 @@
 
   <script>
     // --- Config ---
-    const API_BASE = "https://site.api.espn.com/apis/site/v2/sports/baseball/college-baseball/scoreboard?dates=";
+    const API_BASE = "https://site.api.espn.com/apis/site/v2/sports/baseball/college-baseball/scoreboard";
 
     // --- State ---
     let lastEvents = [];
+ let currentSelectedDate = null;
     let searchTerm = "";
-    let favoriteTeam = localStorage.getItem("favoriteTeam") || "";
+    // --- Favorites (multi) ---
+const FAVORITES_STORAGE_KEY = "favoriteTeams";
+const MAX_FAVORITES = 20;
+function loadFavorites(){
+  try {
+    const raw = localStorage.getItem(FAVORITES_STORAGE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? Array.from(new Set(arr)).slice(0, MAX_FAVORITES) : [];
+  } catch (e) {
+    return [];
+  }
+}
+let favoriteTeams = loadFavorites();
+// Backward compatibility: migrate old single favoriteTeam -> array
+(function migrateOldFavorite(){
+  const old = localStorage.getItem("favoriteTeam");
+  if (old && (!Array.isArray(favoriteTeams) || favoriteTeams.length === 0)) {
+    favoriteTeams = [old];
+    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favoriteTeams));
+  }
+  if (old) localStorage.removeItem("favoriteTeam");
+})();
 
     // --- DOM refs ---
     const teamSearch = document.getElementById("teamSearch");
@@ -342,9 +372,320 @@
     
 const confSelect = document.getElementById("confSelect");
 
+// --- Conference filter data ---
+const CONFERENCE_TEAMS = {"Atlantic 10": ["Davidson", "Dayton", "Fordham", "George Mason", "George Washington", "La Salle", "Rhode Island", "Richmond", "Saint Joseph’s", "Saint Louis", "St. Bonaventure", "VCU"], "ACC": ["Boston College", "California", "Clemson", "Duke", "Florida State", "Georgia Tech", "Louisville", "Miami", "NC State", "North Carolina", "Notre Dame", "Pittsburgh", "Stanford", "Virginia", "Virginia Tech", "Wake Forest"], "America East": ["Albany", "Binghamton", "Bryant", "Maine", "New Jersey Tech", "UMass Lowell", "UMBC"], "American Athletic": ["Charlotte", "East Carolina", "Florida Atlantic", "Memphis", "Rice", "Tulane", "UAB", "South Florida", "UTSA", "Wichita State"], "Atlantic Sun": ["Austin Peay", "Bellarmine", "Central Arkansas", "Eastern Kentucky", "Florida Gulf Coast", "Jacksonville", "Lipscomb", "North Alabama", "North Florida", "Queens (NC)", "Stetson", "West Georgia"], "Big 12": ["Arizona", "Arizona State", "Baylor", "BYU", "Cincinnati", "Houston", "Kansas", "Kansas State", "Oklahoma State", "TCU", "Texas Tech", "UCF", "Utah", "West Virginia"], "Big East": ["Butler", "Connecticut", "Creighton", "Georgetown", "Seton Hall", "St. John’s", "Villanova", "Xavier"], "Big South": ["Charleston Southern", "Gardner-Webb", "High Point", "Longwood", "Presbyterian", "Radford", "UNC Asheville", "USC Upstate", "Winthrop"], "Big Ten": ["Illinois", "Indiana", "Iowa", "Maryland", "Michigan", "Michigan State", "Minnesota", "Nebraska", "Northwestern", "Ohio State", "Oregon", "Penn State", "Purdue", "Rutgers", "Southern California", "UCLA", "Washington"], "Big West": ["Cal Poly", "Cal State Fullerton", "Cal State Northridge", "Cal State Bakersfield", "Hawai'i", "Long Beach State", "UC Davis", "UC Irvine", "UC Riverside", "UC San Diego", "UC Santa Barbara"], "Conference USA": ["Dallas Baptist", "Delaware", "Florida International", "Jacksonville State", "Kennesaw State", "Liberty", "Louisiana Tech", "Middle Tennessee", "Missouri State", "New Mexico State", "Sam Houston", "Western Kentucky"], "Coastal": ["Campbell", "College of Charleston", "Elon", "Hofstra", "Monmouth", "North Carolina A&T", "Northeastern", "Stony Brook", "Towson", "UNC Wilmington", "William & Mary"], "Horizon": ["Milwaukee", "Northern Kentucky", "Oakland", "Wright State", "Youngstown State"], "Independent": ["Oregon State"], "Ivy League": ["Brown", "Columbia", "Cornell", "Dartmouth", "Harvard", "Pennsylvania", "Princeton", "Yale"], "Metro Atlantic": ["Canisius", "Fairfield", "Iona", "Manhattan", "Marist", "Merrimack", "Mount St. Mary’s", "Niagara", "Quinnipiac", "Rider", "Sacred Heart", "Saint Peter’s", "Siena"], "Mid-American": ["Ball State", "Bowling Green", "Central Michigan", "Eastern Michigan", "Kent State", "Miami (OH)", "Northern Illinois", "Ohio", "Toledo", "Massachusetts", "Western Michigan", "Akron"], "Missouri Valley": ["Belmont", "Bradley", "Evansville", "Illinois State", "Illinois-Chicago", "Indiana State", "Murray State", "Southern Illinois", "Valparaiso"], "Mountain West": ["Air Force", "Fresno State", "Grand Canyon", "Nevada", "New Mexico", "San Diego State", "San Jose State", "UNLV", "Washington State"], "Northeast": ["Central Connecticut", "Coppin State", "Delaware State", "Fairleigh Dickinson", "Le Moyne", "Long Island", "Mercyhurst", "New Haven", "Norfolk State", "Stonehill", "UMES", "Wagner"], "Ohio Valley": ["Eastern Illinois", "Lindenwood", "Little Rock", "Morehead State", "SIU Edwardsville", "Southeast Missouri State", "Southern Indiana", "Tennessee Tech", "Tennessee-Martin", "Western Illinois"], "Patriot": ["Army", "Bucknell", "Holy Cross", "Lafayette", "Lehigh", "Navy"], "SEC": ["Alabama", "Arkansas", "Auburn", "Florida", "Georgia", "Kentucky", "LSU", "Mississippi State", "Missouri", "Oklahoma", "Ole Miss", "South Carolina", "Tennessee", "Texas", "Texas A&M", "Vanderbilt"], "SoCon": ["East Tennessee State", "Mercer", "Samford", "The Citadel", "UNC Greensboro", "VMI", "Western Carolina", "Wofford"], "Southland": ["Houston Christian", "Incarnate Word", "Lamar", "McNeese", "New Orleans", "Nicholls", "Northwestern State", "Southeastern Louisiana", "Stephen F. Austin", "Texas A&M-Corpus Christi", "UT Rio Grande Valley"], "Summit": ["North Dakota State", "Northern Colorado", "Omaha", "Oral Roberts", "South Dakota State", "St. Thomas"], "Sun Belt": ["Appalachian State", "Arkansas State", "Coastal Carolina", "Georgia Southern", "Georgia State", "James Madison", "Marshall", "Old Dominion", "South Alabama", "Southern Miss", "Texas State", "Troy", "Louisiana", "UL Monroe"], "Southwestern Athletic": ["Alabama A&M", "Alabama State", "Alcorn State", "Arkansas-Pine Bluff", "Bethune-Cookman", "Florida A&M", "Grambling", "Jackson State", "Mississippi Valley State", "Prairie View", "Southern", "Texas Southern"], "Western Athletic": ["Abilene Christian", "California Baptist", "Utah Tech", "Sacramento State", "Tarleton", "UT Arlington", "Utah Valley"], "West Coast": ["Gonzaga", "Loyola Marymount", "Pacific", "Pepperdine", "Portland", "Saint Mary’s", "San Diego", "San Francisco", "Santa Clara", "Seattle"]};
+// --- Live boxscore links by normalized home-team name ---
+const TEAM_BOX_URLS = {
+  "abilene christian": "https://www.statbroadcast.com/events/statmonitr.php?gid=achr",
+  "air force": "https://www.statbroadcast.com/events/statmonitr.php?gid=afa",
+  "akron": "https://gozips.com/sidearmstats/baseball/summary",
+  "alabama": "https://www.statbroadcast.com/events/statmonitr.php?gid=alab",
+  "alabama aandm": "https://aamusports.com/sidearmstats/baseball/summary",
+  "alabama state": "https://www.statbroadcast.com/events/statmonitr.php?gid=alst",
+  "albany": "https://ualbanysports.com/sidearmstats/baseball/summary",
+  "alcorn state": "https://fullertontitans.com/sidearmstats/baseball/summary",
+  "appalachian state": "https://www.statbroadcast.com/events/statmonitr.php?gid=appa",
+  "arizona": "https://www.statbroadcast.com/events/statbroadcast.php?gid=ariz",
+  "arizona state": "https://www.statbroadcast.com/events/statmonitr.php?gid=asu",
+  "arkansas": "https://www.statbroadcast.com/events/statmonitr.php?gid=ark",
+  "arkansas pine bluff": "https://uapblionsroar.com/sidearmstats/baseball/summary",
+  "arkansas state": "https://www.statbroadcast.com/events/statmonitr.php?gid=aru",
+  "army": "https://goarmywestpoint.com/sidearmstats/baseball/summary",
+  "auburn": "https://www.statbroadcast.com/events/statmonitr.php?gid=aub",
+  "austin peay": "https://www.statbroadcast.com/events/statmonitr.php?gid=ausp",
+  "ball state": "https://www.statbroadcast.com/events/statmonitr.php?gid=ball",
+  "baylor": "https://www.statbroadcast.com/events/statmonitr.php?gid=bay",
+  "bellarmine": "https://athletics.bellarmine.edu/sidearmstats/baseball/summary",
+  "belmont": "https://www.statbroadcast.com/events/statmonitr.php?gid=belm",
+  "bethune cookman": "https://bcuathletics.com/sidearmstats/baseball/summary",
+  "binghamton": "https://binghamtonbearcats.com/sidearmstats/baseball/summary",
+  "boston college": "https://www.statbroadcast.com/events/statmonitr.php?gid=bc",
+  "bowling green": "https://bgsufalcons.com/sidearmstats/baseball/summary",
+  "bradley": "https://www.statbroadcast.com/events/statmonitr.php?gid=brad",
+  "brown": "https://brownbears.com/sidearmstats/baseball/",
+  "bryant": "https://bryantbulldogs.com/sidearmstats/baseball/summary",
+  "bucknell": "https://bucknellbison.com/sidearmstats/baseball/summary",
+  "butler": "https://www.statbroadcast.com/events/statmonitr.php?gid=butl",
+  "byu": "https://www.statbroadcast.com/events/statmonitr.php?gid=byu",
+  "cal poly": "https://www.statbroadcast.com/events/statmonitr.php?gid=cslo",
+  "cal state fullerton": "https://fullertontitans.com/sidearmstats/baseball/summary",
+  "cal state northridge": "https://gomatadors.com/sidearmstats/baseball/summary",
+  "california": "https://www.statbroadcast.com/events/statmonitr.php?gid=cal",
+  "california baptist": "https://www.statbroadcast.com/events/statmonitr.php?gid=calb",
+  "campbell": "https://www.statbroadcast.com/events/statmonitr.php?gid=camb",
+  "canisius": "https://gogriffs.com/sidearmstats/baseball/summary",
+  "central arkansas": "https://ucasports.com/sidearmstats/baseball/summary",
+  "central connecticut": "https://fullertontitans.com/sidearmstats/baseball/summary",
+  "central michigan": "https://cmuchippewas.com/sidearmstats/baseball/summary",
+  "charleston southern": "https://www.csusports.com/sidearmstats/baseball/summary",
+  "charlotte": "https://www.statbroadcast.com/events/statmonitr.php?gid=ncch",
+  "cincinnati": "https://www.statbroadcast.com/events/statmonitr.php?gid=cinn",
+  "clemson": "https://www.statbroadcast.com/events/statmonitr.php?gid=clem",
+  "coastal carolina": "https://www.statbroadcast.com/events/statmonitr.php?gid=coas",
+  "college of charleston": "https://www.statbroadcast.com/events/statmonitr.php?gid=chac",
+  "columbia": "https://www.statbroadcast.com/events/statmonitr.php?gid=colm",
+  "connecticut": "https://www.statbroadcast.com/events/statmonitr.php?gid=conn",
+  "coppin state": "https://coppinstatesports.com/sidearmstats/baseball/summary",
+  "cornell": "https://cornellbigred.com/sidearmstats/baseball/summary",
+  "creighton": "https://www.statbroadcast.com/events/statmonitr.php?gid=crei",
+  "cal state bakersfield": "https://gorunners.com/sidearmstats/baseball/summary",
+  "dallas baptist": "https://www.statbroadcast.com/events/statmonitr.php?gid=dbap",
+  "dartmouth": "https://dartmouthsports.com/sidearmstats/baseball/summary",
+  "davidson": "https://davidsonwildcats.com/sidearmstats/baseball/summary",
+  "dayton": "https://www.statbroadcast.com/events/statmonitr.php?gid=dayt",
+  "delaware": "https://www.statbroadcast.com/events/statmonitr.php?gid=dela",
+  "delaware state": "https://www.statbroadcast.com/events/statmonitr.php?gid=dela",
+  "duke": "https://www.statbroadcast.com/events/statmonitr.php?gid=duke",
+  "east carolina": "https://www.statbroadcast.com/events/statmonitr.php?gid=ecu",
+  "east tennessee state": "https://www.statbroadcast.com/events/statmonitr.php?gid=etsu",
+  "eastern illinois": "https://eiupanthers.com/sidearmstats/baseball/summary",
+  "eastern kentucky": "https://ekusports.com/sidearmstats/baseball/summary",
+  "eastern michigan": "https://www.statbroadcast.com/events/statmonitr.php?gid=emu",
+  "elon": "https://www.statbroadcast.com/events/statmonitr.php?gid=elon",
+  "evansville": "https://www.statbroadcast.com/events/statmonitr.php?gid=evan",
+  "fairfield": "https://www.statbroadcast.com/events/statmonitr.php?gid=fair",
+  "fairleigh dickinson": "https://fduknights.com/sidearmstats/baseball/summary",
+  "florida": "https://www.statbroadcast.com/events/statmonitr.php?gid=fla",
+  "florida aandm": "https://famuathletics.com/sidearmstats/baseball/summary",
+  "florida atlantic": "https://www.statbroadcast.com/events/statmonitr.php?gid=fau",
+  "florida gulf coast": "https://www.statbroadcast.com/events/statmonitr.php?gid=fguu",
+  "florida international": "https://www.statbroadcast.com/events/statmonitr.php?gid=flin",
+  "florida state": "https://www.statbroadcast.com/events/statmonitr.php?gid=fsu",
+  "fordham": "https://fordhamsports.com/sidearmstats/baseball/summary",
+  "fresno state": "https://www.statbroadcast.com/events/statmonitr.php?gid=fres",
+  "gardner webb": "https://www.statbroadcast.com/events/statmonitr.php?gid=gard",
+  "george mason": "https://gomason.com/sidearmstats/baseball/summary",
+  "george washington": "https://gwsports.com/sidearmstats/baseball/summary",
+  "georgetown": "https://www.statbroadcast.com/events/statmonitr.php?gid=gu",
+  "georgia": "https://www.statbroadcast.com/events/statmonitr.php?gid=geo",
+  "georgia southern": "https://www.statbroadcast.com/events/statmonitr.php?gid=geos",
+  "georgia state": "https://www.statbroadcast.com/events/statmonitr.php?gid=gest",
+  "georgia tech": "https://www.statbroadcast.com/events/statmonitr.php?gid=geot",
+  "gonzaga": "https://www.statbroadcast.com/events/statmonitr.php?gid=gonz",
+  "grambling": "https://fullertontitans.com/sidearmstats/baseball/summary",
+  "grand canyon": "https://www.statbroadcast.com/events/statmonitr.php?gid=gcan",
+  "harvard": "https://gocrimson.com/sidearmstats/baseball/summary",
+  "hawai i": "https://www.statbroadcast.com/events/statmonitr.php?gid=haw",
+  "high point": "https://highpointpanthers.com/sidearmstats/baseball/summary",
+  "hofstra": "https://www.statbroadcast.com/events/statmonitr.php?gid=hofs",
+  "holy cross": "https://goholycross.com/sidearmstats/baseball/summary",
+  "houston": "https://www.statbroadcast.com/events/statmonitr.php?gid=hou",
+  "houston christian": "https://www.statbroadcast.com/events/statmonitr.php?gid=houb",
+  "illinois": "https://www.statbroadcast.com/events/statmonitr.php?gid=ill",
+  "illinois chicago": "https://www.statbroadcast.com/events/statmonitr.php?gid=ilch",
+  "illinois state": "https://www.statbroadcast.com/events/statmonitr.php?gid=ilsu",
+  "incarnate word": "https://www.statbroadcast.com/events/statmonitr.php?gid=inca",
+  "indiana": "https://www.statbroadcast.com/events/statmonitr.php?gid=ind",
+  "indiana state": "https://www.statbroadcast.com/events/statmonitr.php?gid=insu",
+  "iona": "https://ionagaels.com/sidearmstats/baseball/summary",
+  "iowa": "https://www.statbroadcast.com/events/statmonitr.php?gid=iowa",
+  "jackson state": "https://www.statbroadcast.com/events/statmonitr.php?gid=jast",
+  "jacksonville": "https://judolphins.com/sidearmstats/baseball/summary",
+  "jacksonville state": "https://www.statbroadcast.com/events/statmonitr.php?gid=jkst",
+  "james madison": "https://www.statbroadcast.com/events/statmonitr.php?gid=jame",
+  "kansas": "https://www.statbroadcast.com/events/statmonitr.php?gid=kan",
+  "kansas state": "https://www.statbroadcast.com/events/statmonitr.php?gid=ksu",
+  "kennesaw state": "https://www.statbroadcast.com/events/statmonitr.php?gid=kenn",
+  "kent state": "https://kentstatesports.com/sidearmstats/baseball/summary",
+  "kentucky": "https://www.statbroadcast.com/events/statmonitr.php?gid=kty",
+  "la salle": "https://goexplorers.com/sidearmstats/baseball/summary",
+  "lafayette": "https://goleopards.com/sidearmstats/baseball/summary",
+  "lamar": "https://www.statbroadcast.com/events/statmonitr.php?gid=lama",
+  "le moyne": "https://lemoynedolphins.com/sidearmstats/baseball/summary",
+  "lehigh": "https://lehighsports.com/sidearmstats/baseball/summary",
+  "liberty": "https://www.statbroadcast.com/events/statmonitr.php?gid=libe",
+  "lindenwood": "https://lindenwoodlions.com/sidearmstats/baseball/summary",
+  "lipscomb": "https://www.statbroadcast.com/events/statmonitr.php?gid=lips",
+  "little rock": "https://www.statbroadcast.com/events/statmonitr.php?gid=arkl",
+  "long beach state": "https://www.statbroadcast.com/events/statbroadcast.php?gid=lbst",
+  "long island": "https://judolphins.com/sidearmstats/baseball/summary",
+  "longwood": "https://longwoodlancers.com/sidearmstats/baseball/summary",
+  "louisiana": "https://www.statbroadcast.com/events/statmonitr.php?gid=ulaf",
+  "louisiana tech": "https://www.statbroadcast.com/events/statmonitr.php?gid=latc",
+  "louisville": "https://www.statbroadcast.com/events/statmonitr.php?gid=lou",
+  "loyola marymount": "https://www.statbroadcast.com/events/statmonitr.php?gid=loyo",
+  "lsu": "https://www.statbroadcast.com/events/statmonitr.php?gid=lsu",
+  "maine": "https://goblackbears.com/sidearmstats/baseball/summary",
+  "manhattan": "https://gojaspers.com/sidearmstats/baseball/summary",
+  "marist": "https://www.statbroadcast.com/events/statmonitr.php?gid=mari",
+  "marshall": "https://www.statbroadcast.com/events/statmonitr.php?gid=mars",
+  "maryland": "https://www.statbroadcast.com/events/statmonitr.php?gid=md",
+  "massachusetts": "https://www.statbroadcast.com/events/statmonitr.php?gid=mass",
+  "mcneese": "https://www.statbroadcast.com/events/statmonitr.php?gid=mcne",
+  "memphis": "https://www.statbroadcast.com/events/statmonitr.php?gid=mem",
+  "mercer": "https://www.statbroadcast.com/events/statmonitr.php?gid=merc",
+  "mercyhurst": "https://hurstathletics.com/sidearmstats/baseball/summary",
+  "merrimack": "https://merrimackathletics.com/sidearmstats/baseball/summary",
+  "miami": "https://www.statbroadcast.com/events/statmonitr.php?gid=mifl",
+  "miami oh": "https://miamiredhawks.com/sidearmstats/baseball/summary",
+  "michigan": "https://www.statbroadcast.com/events/statmonitr.php?gid=mich",
+  "michigan state": "https://www.statbroadcast.com/events/statmonitr.php?gid=msu",
+  "middle tennessee": "https://www.statbroadcast.com/events/statmonitr.php?gid=mtn",
+  "milwaukee": "https://www.statbroadcast.com/events/statmonitr.php?gid=wiml",
+  "minnesota": "https://www.statbroadcast.com/events/statmonitr.php?gid=minn",
+  "mississippi state": "https://www.statbroadcast.com/events/statmonitr.php?gid=msst",
+  "mississippi valley state": "https://mvsusports.com/sidearmstats/baseball/summary",
+  "missouri": "https://www.statbroadcast.com/events/statmonitr.php?gid=miss",
+  "missouri state": "https://www.statbroadcast.com/events/statmonitr.php?gid=mosu",
+  "monmouth": "https://www.statbroadcast.com/events/statmonitr.php?gid=monm",
+  "morehead state": "https://www.statbroadcast.com/events/statmonitr.php?gid=more",
+  "mount saint mary s": "https://mountathletics.com/sidearmstats/baseball/summary",
+  "murray state": "https://www.statbroadcast.com/events/statmonitr.php?gid=must",
+  "navy": "https://www.statbroadcast.com/events/statmonitr.php?gid=navy",
+  "nc state": "https://www.statbroadcast.com/events/statmonitr.php?gid=ncst",
+  "nebraska": "https://www.statbroadcast.com/events/statmonitr.php?gid=neb",
+  "nevada": "https://www.statbroadcast.com/events/statmonitr.php?gid=unv",
+  "new haven": "https://newhavenchargers.com/sidearmstats/baseball/summary",
+  "new jersey tech": "https://njithighlanders.com/sidearmstats/baseball/summary",
+  "new mexico": "https://www.statbroadcast.com/events/statmonitr.php?gid=nm",
+  "new mexico state": "https://www.statbroadcast.com/events/statmonitr.php?gid=nmst",
+  "new orleans": "https://www.statbroadcast.com/events/statmonitr.php?gid=newo",
+  "niagara": "https://purpleeagles.com/sidearmstats/baseball/summary",
+  "nicholls": "https://www.statbroadcast.com/events/statmonitr.php?gid=nist",
+  "norfolk state": "https://nsuspartans.com/sidearmstats/baseball/summary",
+  "north alabama": "https://www.statbroadcast.com/events/statmonitr.php?gid=noal",
+  "north carolina": "https://www.statbroadcast.com/events/statmonitr.php?gid=unc",
+  "north carolina aandt": "https://www.statbroadcast.com/events/statmonitr.php?gid=ncat",
+  "north dakota state": "https://www.statbroadcast.com/events/statmonitr.php?gid=ndsu",
+  "north florida": "https://www.statbroadcast.com/events/statmonitr.php?gid=nfla",
+  "northeastern": "https://www.statbroadcast.com/events/statmonitr.php?gid=ne",
+  "northern colorado": "https://uncbears.com/sidearmstats/baseball/summary",
+  "northern illinois": "https://niuhuskies.com/sidearmstats/baseball/summary",
+  "northern kentucky": "https://nkunorse.com/sidearmstats/baseball/summary",
+  "northwestern": "https://www.statbroadcast.com/events/statmonitr.php?gid=nw",
+  "northwestern state": "https://www.statbroadcast.com/events/statmonitr.php?gid=nwst",
+  "notre dame": "https://www.statbroadcast.com/events/statmonitr.php?gid=nd",
+  "oakland": "https://www.statbroadcast.com/events/statmonitr.php?gid=oakl",
+  "ohio": "https://www.statbroadcast.com/events/statmonitr.php?gid=ohio",
+  "ohio state": "https://www.statbroadcast.com/events/statmonitr.php?gid=osu",
+  "oklahoma": "https://www.statbroadcast.com/events/statmonitr.php?gid=okla",
+  "oklahoma state": "https://www.statbroadcast.com/events/statmonitr.php?gid=okst",
+  "old dominion": "https://www.statbroadcast.com/events/statmonitr.php?gid=oldd",
+  "ole miss": "https://www.statbroadcast.com/events/statmonitr.php?gid=ole",
+  "omaha": "https://omavs.com/sidearmstats/baseball/summary",
+  "oral roberts": "https://oruathletics.com/sidearmstats/baseball/summary",
+  "oregon": "https://www.statbroadcast.com/events/statmonitr.php?gid=ore",
+  "oregon state": "https://www.statbroadcast.com/events/statmonitr.php?gid=orst",
+  "pacific": "https://pacifictigers.com/sidearmstats/baseball/summary",
+  "penn state": "https://www.statbroadcast.com/events/statmonitr.php?gid=psu",
+  "pennsylvania": "https://www.statbroadcast.com/events/statmonitr.php?gid=penn",
+  "pepperdine": "https://www.statbroadcast.com/events/statmonitr.php?gid=pepp",
+  "pittsburgh": "https://www.statbroadcast.com/events/statmonitr.php?gid=pitt",
+  "portland": "https://www.statbroadcast.com/events/statmonitr.php?gid=port",
+  "prairie view": "https://www.statbroadcast.com/events/statmonitr.php?gid=pvam",
+  "presbyterian": "https://www.statbroadcast.com/events/statmonitr.php?gid=psby",
+  "princeton": "https://goprincetontigers.com/sidearmstats/baseball/summary",
+  "purdue": "https://www.statbroadcast.com/events/statmonitr.php?gid=pur",
+  "queens nc": "https://www.statbroadcast.com/events/all.php",
+  "quinnipiac": "https://gobobcats.com/sidearmstats/baseball/summary",
+  "radford": "https://radfordathletics.com/sidearmstats/baseball/summary",
+  "rhode island": "https://www.statbroadcast.com/events/statmonitr.php?gid=uri",
+  "rice": "https://www.statbroadcast.com/events/statmonitr.php?gid=rice",
+  "richmond": "https://www.statbroadcast.com/events/statmonitr.php?gid=rich",
+  "rider": "https://gobroncs.com/sidearmstats/baseball/summary",
+  "rutgers": "https://www.statbroadcast.com/events/statmonitr.php?gid=rutu",
+  "sacramento state": "https://www.statbroadcast.com/events/statmonitr.php?gid=cssa",
+  "sacred heart": "https://sacredheartpioneers.com/sidearmstats/baseball/summary",
+  "saint bonaventure": "https://gobonnies.com/sidearmstats/baseball/summary",
+  "saint john s": "https://www.statbroadcast.com/events/statmonitr.php?gid=stjo",
+  "saint joseph s": "https://sjuhawks.com/sidearmstats/baseball/summary",
+  "saint louis": "https://www.statbroadcast.com/events/statmonitr.php?gid=stlo",
+  "saint mary s": "https://www.statbroadcast.com/events/statmonitr.php?gid=stma",
+  "saint peter s": "https://saintpeterspeacocks.com/sidearmstats/baseball/summary",
+  "saint thomas": "https://tommiesports.com/sidearmstats/baseball/summary",
+  "sam houston": "https://www.statbroadcast.com/events/statmonitr.php?gid=samh",
+  "samford": "https://www.statbroadcast.com/events/statmonitr.php?gid=samf",
+  "san diego": "https://www.statbroadcast.com/events/statmonitr.php?gid=usd",
+  "san diego state": "https://www.statbroadcast.com/events/statmonitr.php?gid=sdsu",
+  "san francisco": "https://www.statbroadcast.com/events/statmonitr.php?gid=sanf",
+  "san jose state": "https://www.statbroadcast.com/events/statmonitr.php?gid=sjsu",
+  "santa clara": "https://www.statbroadcast.com/events/statmonitr.php?gid=sacl",
+  "seattle": "https://www.statbroadcast.com/events/statmonitr.php?gid=sea",
+  "seton hall": "https://www.statbroadcast.com/events/statmonitr.php?gid=seha",
+  "siena": "https://sienasaints.com/sidearmstats/baseball/summary",
+  "siu edwardsville": "https://www.statbroadcast.com/events/statmonitr.php?gid=siue",
+  "south alabama": "https://www.statbroadcast.com/events/statmonitr.php?gid=sala",
+  "south carolina": "https://www.statbroadcast.com/events/statmonitr.php?gid=scar",
+  "south dakota state": "https://www.statbroadcast.com/events/statmonitr.php?gid=sdst",
+  "south florida": "https://www.statbroadcast.com/events/statmonitr.php?gid=sfla",
+  "southeast missouri state": "https://www.statbroadcast.com/events/statmonitr.php?gid=semo",
+  "southeastern louisiana": "https://www.statbroadcast.com/events/statmonitr.php?gid=sela",
+  "southern": "https://www.statbroadcast.com/events/statmonitr.php?gid=geos",
+  "southern california": "https://www.statbroadcast.com/events/statmonitr.php?gid=usc",
+  "southern illinois": "https://www.statbroadcast.com/events/statmonitr.php?gid=silu",
+  "southern indiana": "https://usiscreamingeagles.com/sidearmstats/baseball/summary",
+  "southern miss": "https://www.statbroadcast.com/events/statmonitr.php?gid=smis",
+  "stanford": "https://www.statbroadcast.com/events/statmonitr.php?gid=stan",
+  "stephen f austin": "https://www.statbroadcast.com/events/statmonitr.php?gid=sasu",
+  "stetson": "https://www.statbroadcast.com/events/statmonitr.php?gid=stet",
+  "stonehill": "https://stonehillskyhawks.com/sidearmstats/baseball/summary",
+  "stony brook": "https://www.statbroadcast.com/events/statmonitr.php?gid=ston",
+  "tarleton": "https://www.statbroadcast.com/events/statmonitr.php?gid=tarl",
+  "tcu": "https://www.statbroadcast.com/events/statmonitr.php?gid=tcu",
+  "tennessee": "https://www.statbroadcast.com/events/statmonitr.php?gid=tenn",
+  "tennessee martin": "https://www.statbroadcast.com/events/statmonitr.php?gid=tenm",
+  "tennessee tech": "https://www.statbroadcast.com/events/statmonitr.php?gid=tntc",
+  "texas": "https://www.statbroadcast.com/events/statmonitr.php?gid=tex",
+  "texas aandm": "https://www.statbroadcast.com/events/statmonitr.php?gid=tam",
+  "texas aandm corpus christi": "https://www.statbroadcast.com/events/statmonitr.php?gid=tamcc",
+  "texas southern": "https://tsusports.com/sidearmstats/baseball/summary",
+  "texas state": "https://www.statbroadcast.com/events/statmonitr.php?gid=txst",
+  "texas tech": "https://www.statbroadcast.com/events/statmonitr.php?gid=text",
+  "the citadel": "https://citadelsports.com/sidearmstats/baseball/summary",
+  "toledo": "https://utrockets.com/sidearmstats/baseball/summary",
+  "towson": "https://www.statbroadcast.com/events/statmonitr.php?gid=tows",
+  "troy": "https://www.statbroadcast.com/events/statmonitr.php?gid=troy",
+  "tulane": "https://www.statbroadcast.com/events/statmonitr.php?gid=tul",
+  "uab": "https://www.statbroadcast.com/events/statmonitr.php?gid=albr",
+  "uc davis": "https://www.statbroadcast.com/events/statmonitr.php?gid=ucda",
+  "uc irvine": "https://ucirvinesports.com/sidearmstats/baseball/summary",
+  "uc riverside": "https://gohighlanders.com/sidearmstats/baseball/summary",
+  "uc san diego": "https://www.statbroadcast.com/events/statmonitr.php?gid=ucsd",
+  "uc santa barbara": "https://www.statbroadcast.com/events/statmonitr.php?gid=ucsb",
+  "ucf": "https://www.statbroadcast.com/events/statmonitr.php?gid=ucf",
+  "ucla": "https://www.statbroadcast.com/events/statmonitr.php?gid=ucla",
+  "ul monroe": "https://www.statbroadcast.com/events/statmonitr.php?gid=ulm",
+  "umass lowell": "https://goriverhawks.com/sidearmstats/baseball/summary",
+  "umbc": "https://umbcretrievers.com/sidearmstats/baseball/summary",
+  "umes": "https://umeshawksports.com/sidearmstats/baseball/summary",
+  "unc asheville": "https://uncabulldogs.com/sidearmstats/baseball/summary",
+  "unc greensboro": "https://www.statbroadcast.com/events/statmonitr.php?gid=uncg",
+  "unc wilmington": "https://www.statbroadcast.com/events/statmonitr.php?gid=ncwi",
+  "unlv": "https://www.statbroadcast.com/events/statmonitr.php?gid=unlv",
+  "usc upstate": "https://upstatespartans.com/sidearmstats/baseball/summary",
+  "ut arlington": "https://www.statbroadcast.com/events/statmonitr.php?gid=txar",
+  "ut rio grande valley": "https://www.statbroadcast.com/events/statmonitr.php?gid=utrgv",
+  "utah": "https://www.statbroadcast.com/events/statmonitr.php?gid=utah",
+  "utah tech": "https://utahtechtrailblazers.com/sidearmstats/baseball/summary",
+  "utah valley": "https://www.statbroadcast.com/events/statmonitr.php?gid=utva",
+  "utsa": "https://www.statbroadcast.com/events/statmonitr.php?gid=txsa",
+  "valparaiso": "https://www.statbroadcast.com/events/statmonitr.php?gid=val",
+  "vanderbilt": "https://www.statbroadcast.com/events/statmonitr.php?gid=vand",
+  "vcu": "https://www.statbroadcast.com/events/statmonitr.php?gid=vcu",
+  "villanova": "https://www.statbroadcast.com/events/statmonitr.php?gid=nova",
+  "virginia": "https://www.statbroadcast.com/events/statmonitr.php?gid=va",
+  "virginia tech": "https://www.statbroadcast.com/events/statmonitr.php?gid=vtec",
+  "vmi": "https://vmikeydets.com/sidearmstats/baseball/summary",
+  "wagner": "https://wagnerathletics.com/sidearmstats/baseball/summary",
+  "wake forest": "https://www.statbroadcast.com/events/statmonitr.php?gid=wake",
+  "washington": "https://www.statbroadcast.com/events/statmonitr.php?gid=wash",
+  "washington state": "https://www.statbroadcast.com/events/statmonitr.php?gid=wast",
+  "west georgia": "https://uwgathletics.com/sidearmstats/baseball/summary",
+  "west virginia": "https://www.statbroadcast.com/events/statmonitr.php?gid=wvir",
+  "western carolina": "https://www.statbroadcast.com/events/statmonitr.php?gid=wcar",
+  "western illinois": "https://goleathernecks.com/sidearmstats/baseball/summary",
+  "western kentucky": "https://www.statbroadcast.com/events/statmonitr.php?gid=wky",
+  "western michigan": "https://www.statbroadcast.com/events/statmonitr.php?gid=wmu",
+  "wichita state": "https://www.statbroadcast.com/events/statmonitr.php?gid=wich",
+  "william and mary": "https://www.statbroadcast.com/events/statmonitr.php?gid=wima",
+  "winthrop": "https://www.statbroadcast.com/events/statmonitr.php?gid=wint",
+  "wofford": "https://woffordterriers.com/sidearmstats/baseball/summary",
+  "wright state": "https://wsuraiders.com/sidearmstats/baseball/summary",
+  "xavier": "https://www.statbroadcast.com/events/statmonitr.php?gid=xavi",
+  "yale": "https://yalebulldogs.com/sidearmstats/baseball/summary",
+  "youngstown state": "https://ysusports.com/sidearmstats/baseball/summary"
+};
 
-// --- Conference filter data (from Conference Teams List.txt) ---
-const CONFERENCE_TEAMS = {"Atlantic 10": ["Davidson", "Dayton", "Fordham", "George Mason", "George Washington", "La Salle", "Rhode Island", "Richmond", "Saint Joseph’s", "Saint Louis", "St. Bonaventure", "VCU"], "ACC": ["Boston College", "California", "Clemson", "Duke", "Florida State", "Georgia Tech", "Louisville", "Miami", "NC State", "North Carolina", "Notre Dame", "Pittsburgh", "Stanford", "Virginia", "Virginia Tech", "Wake Forest"], "America East": ["Albany", "Binghamton", "Bryant", "Maine", "New Jersey Tech", "UMass Lowell", "UMBC"], "American Athletic": ["Charlotte", "East Carolina", "Florida Atlantic", "Memphis", "Rice", "Tulane", "UAB", "South Florida", "UTSA", "Wichita State"], "Atlantic Sun": ["Austin Peay", "Bellarmine", "Central Arkansas", "Eastern Kentucky", "Florida Gulf Coast", "Jacksonville", "Lipscomb", "North Alabama", "North Florida", "Queens (NC)", "Stetson", "West Georgia"], "Big 12": ["Arizona", "Arizona State", "Baylor", "BYU", "Cincinnati", "Houston", "Kansas", "Kansas State", "Oklahoma State", "TCU", "Texas Tech", "UCF", "Utah", "West Virginia"], "Big East": ["Butler", "Connecticut", "Creighton", "Georgetown", "Seton Hall", "St. John’s", "Villanova", "Xavier"], "Big South": ["Charleston Southern", "Gardner-Webb", "High Point", "Longwood", "Presbyterian", "Radford", "UNC Asheville", "USC Upstate", "Winthrop"], "Big Ten": ["Illinois", "Indiana", "Iowa", "Maryland", "Michigan", "Michigan State", "Minnesota", "Nebraska", "Northwestern", "Ohio State", "Oregon", "Penn State", "Purdue", "Rutgers", "Southern California", "UCLA", "Washington"], "Big West": ["Cal Poly", "Cal State Fullerton", "Cal State Northridge", "CSU Bakersfield", "Hawaii", "Long Beach State", "UC Davis", "UC Irvine", "UC Riverside", "UC San Diego", "UC Santa Barbara"], "Conference USA": ["Dallas Baptist", "Delaware", "Florida International", "Jacksonville State", "Kennesaw State", "Liberty", "Louisiana Tech", "Middle Tennessee", "Missouri State", "New Mexico State", "Sam Houston", "Western Kentucky"], "Coastal": ["Campbell", "College of Charleston", "Elon", "Hofstra", "Monmouth", "North Carolina A&T", "Northeastern", "Stony Brook", "Towson", "UNC Wilmington", "William & Mary"], "Horizon": ["Milwaukee", "Northern Kentucky", "Oakland", "Wright State", "Youngstown State"], "Independent": ["Oregon State"], "Ivy League": ["Brown", "Columbia", "Cornell", "Dartmouth", "Harvard", "Pennsylvania", "Princeton", "Yale"], "Metro Atlantic": ["Canisius", "Fairfield", "Iona", "Manhattan", "Marist", "Merrimack", "Mount St. Mary’s", "Niagara", "Quinnipiac", "Rider", "Sacred Heart", "Saint Peter’s", "Siena"], "Mid-American": ["Ball State", "Bowling Green", "Central Michigan", "Eastern Michigan", "Kent State", "Miami (OH)", "Northern Illinois", "Ohio", "Toledo", "Massachusetts", "Western Michigan", "Akron"], "Missouri Valley": ["Belmont", "Bradley", "Evansville", "Illinois State", "Illinois-Chicago", "Indiana State", "Murray State", "Southern Illinois", "Valparaiso"], "Mountain West": ["Air Force", "Fresno State", "Grand Canyon", "Nevada", "New Mexico", "San Diego State", "San Jose State", "UNLV", "Washington State"], "Northeast": ["Central Connecticut", "Coppin State", "Delaware State", "Fairleigh Dickinson", "Le Moyne", "Long Island", "Mercyhurst", "New Haven", "Norfolk State", "Stonehill", "UMES", "Wagner"], "Ohio Valley": ["Eastern Illinois", "Lindenwood", "Little Rock", "Morehead State", "SIU Edwardsville", "Southeast Missouri State", "Southern Indiana", "Tennessee Tech", "Tennessee-Martin", "Western Illinois"], "Patriot": ["Army", "Bucknell", "Holy Cross", "Lafayette", "Lehigh", "Navy"], "SEC": ["Alabama", "Arkansas", "Auburn", "Florida", "Georgia", "Kentucky", "LSU", "Mississippi State", "Missouri", "Oklahoma", "Ole Miss", "South Carolina", "Tennessee", "Texas", "Texas A&M", "Vanderbilt"], "SoCon": ["East Tennessee State", "Mercer", "Samford", "The Citadel", "UNC Greensboro", "VMI", "Western Carolina", "Wofford"], "Southland": ["Houston Christian", "Incarnate Word", "Lamar", "McNeese", "New Orleans", "Nicholls", "Northwestern State", "Southeastern Louisiana", "Stephen F. Austin", "Texas A&M-Corpus Christi", "UT Rio Grande Valley"], "Summit": ["North Dakota State", "Northern Colorado", "Omaha", "Oral Roberts", "South Dakota State", "St. Thomas"], "Sun Belt": ["Appalachian State", "Arkansas State", "Coastal Carolina", "Georgia Southern", "Georgia State", "James Madison", "Marshall", "Old Dominion", "South Alabama", "Southern Miss", "Texas State", "Troy", "Louisiana", "UL Monroe"], "Southwestern Athletic": ["Alabama A&M", "Alabama State", "Alcorn State", "Arkansas-Pine Bluff", "Bethune-Cookman", "Florida A&M", "Grambling", "Jackson State", "Mississippi Valley State", "Prairie View", "Southern", "Texas Southern"], "Western Athletic": ["Abilene Christian", "California Baptist", "Utah Tech", "Sacramento State", "Tarleton", "UT Arlington", "Utah Valley"], "West Coast": ["Gonzaga", "Loyola Marymount", "Pacific", "Pepperdine", "Portland", "Saint Mary’s", "San Diego", "San Francisco", "Santa Clara", "Seattle"]};
 const CONF_SELECT_STORAGE_KEY = 'selectedConference';
 let selectedConference = localStorage.getItem(CONF_SELECT_STORAGE_KEY) || '';
 
@@ -367,7 +708,15 @@ const CONFERENCE_TEAM_SETS = Object.fromEntries(
 );
 
 function eventInSelectedConference(ev) {
-  if (!selectedConference) return true;
+ if (!selectedConference) return true;
+
+ // Special filter: Top 25 (only games featuring at least one ranked team)
+ if (selectedConference === '__TOP25__') {
+   const comp = ev?.competitions?.[0] || {};
+   const competitors = comp?.competitors || [];
+   // curatedRank is absent for unranked teams
+   return competitors.some(c => Number.isFinite(Number(c?.curatedRank?.current)));
+ }
   const set = CONFERENCE_TEAM_SETS[selectedConference];
   if (!set) return true;
   const comp = ev?.competitions?.[0] || {};
@@ -443,28 +792,91 @@ function filterEvents(events, q) {
     }
 
     // --- API fetch ---
-    async function fetchScores(date) {
-      const url = API_BASE + toYYYYMMDD(date);
-      const res = await fetch(url, { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      return Array.isArray(json.events) ? json.events : [];
+async function fetchScores(date) {
+  // LOSSLESS fetch: keep the API response intact (no filtering/slicing here)
+  const url = `${API_BASE}?dates=${toYYYYMMDD(date)}&limit=1000`;
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+  return json;
+}
+    async function fetchAndWriteScoreboard(dateYYYYMMDD) {
+      const baseUrl =
+        "https://site.api.espn.com/apis/site/v2/sports/baseball/college-baseball/scoreboard";
+    
+      const url = `${baseUrl}?dates=${dateYYYYMMDD}`;
+    
+      const response = await fetch(url);
+    
+      if (!response.ok) {
+        throw new Error(`Scoreboard fetch failed: ${response.status}`);
+      }
+    
+      // Parse JSON ONCE
+      const apiData = await response.json();
+    
+      // Sanity check (optional but recommended)
+      if (!apiData || !Array.isArray(apiData.events)) {
+        throw new Error("Invalid ESPN scoreboard response");
+      }
+    
+      // LOSSLESS WRITE
+      // Do NOT modify apiData in any way
+      const jsonText = JSON.stringify(apiData, null, 2);
+    
+      // Browser
+      if (typeof window !== "undefined") {
+        const blob = new Blob([jsonText], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+    
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `scoreboard-${dateYYYYMMDD}.json`;
+        a.click();
+    
+        URL.revokeObjectURL(url);
+      }
+    
+      // Node.js
+      if (typeof require !== "undefined") {
+        const fs = require("fs");
+        fs.writeFileSync(
+          `scoreboard-${dateYYYYMMDD}.json`,
+          jsonText,
+          "utf8"
+        );
+      }
+    
+      return apiData; // return raw data for debugging if needed
     }
 
     // --- Data helpers ---
     function teamObj(competitors, side) {
-      const c = competitors.find(c => (c.homeAway || "").toLowerCase() === side);
-      if (!c) return null;
-      const score = Number.isFinite(Number(c.score)) ? Number(c.score) : null;
-      const team = c.team || {};
-      return {
-        name: team.location || team.displayName || "Unknown",
-        logo: team.logo || "",
-        score
-      };
-    }
+ const c = competitors.find(c => (c.homeAway || "").toLowerCase() === side);
+ if (!c) return null;
+ const score = Number.isFinite(Number(c.score)) ? Number(c.score) : null;
+ const team = c.team || {};
 
-    function statusTextFrom(comp) {
+ // Base name (used for favorites, filtering, comparisons, etc.)
+ const name = team.location || team.displayName || "Unknown";
+
+ // Top 25 rank from JSON (absent for unranked teams)
+ const rank = Number.isFinite(Number(c?.curatedRank?.current))
+   ? Number(c.curatedRank.current)
+   : null;
+
+ // Display name (used only for UI rendering)
+ const displayName = rank ? `#${rank} ${name}` : name;
+
+ return {
+   name,
+   displayName,
+   rank,
+   logo: team.logo || "",
+   score
+ };
+ }
+function statusTextFrom(comp) {
       const st = comp?.status || {};
       const type = st?.type || {};
       const state = (type?.state || "").toLowerCase(); // pre | in | post
@@ -483,14 +895,14 @@ function filterEvents(events, q) {
 
     // --- Search highlight ---
     function escapeHTML(str) {
-      return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-    }
-    function highlightMatch(name, q) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+function highlightMatch(name, q) {
       if (!q) return escapeHTML(name);
       const lower = name.toLowerCase();
       const idx = lower.indexOf(q);
@@ -501,19 +913,47 @@ function filterEvents(events, q) {
       return `${escapeHTML(before)}<mark>${escapeHTML(middle)}</mark>${escapeHTML(after)}`;
     }
 
-    // --- Favorite handling ---
-    function setFavorite(teamName) {
-      favoriteTeam = teamName;
-      localStorage.setItem("favoriteTeam", teamName);
-      renderGames(lastEvents);
-    }
-    function clearFavorite() {
-      favoriteTeam = "";
-      localStorage.removeItem("favoriteTeam");
-      renderGames(lastEvents);
-    }
-
-    // --- Render one game ---
+    // --- Favorites handling (up to 20) ---
+function saveFavorites(){
+  if (!favoriteTeams || favoriteTeams.length === 0) {
+    localStorage.removeItem(FAVORITES_STORAGE_KEY);
+  } else {
+    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favoriteTeams));
+  }
+}
+function isFavorite(teamName){
+  return Array.isArray(favoriteTeams) && favoriteTeams.includes(teamName);
+}
+function toast(msg, ms=2500){
+  // lightweight, non-blocking notice in the info area
+  if (!info) return;
+  const prev = info.textContent;
+  info.textContent = msg;
+  setTimeout(()=>{ if (info.textContent === msg) info.textContent = prev || ''; }, ms);
+}
+function toggleFavorite(teamName){
+  if (!teamName) return;
+  const idx = favoriteTeams.indexOf(teamName);
+  if (idx >= 0) {
+    favoriteTeams.splice(idx, 1);
+    saveFavorites();
+    renderGames(lastEvents);
+    return;
+  }
+  if (favoriteTeams.length >= MAX_FAVORITES) {
+    toast(`You can favorite up to ${MAX_FAVORITES} teams. Remove one to add another.`);
+    return;
+  }
+  favoriteTeams.push(teamName);
+  saveFavorites();
+  renderGames(lastEvents);
+}
+function clearFavorites(){
+  favoriteTeams = [];
+  saveFavorites();
+  renderGames(lastEvents);
+}
+// --- Render one game ---
     function renderGame(event) {
       const comp = event?.competitions?.[0] || {};
       const competitors = comp?.competitors || [];
@@ -544,13 +984,15 @@ function filterEvents(events, q) {
 
         const nameSpan = document.createElement("span");
         nameSpan.className = "team-name";
-        nameSpan.innerHTML = highlightMatch(team.name, searchTerm);
+        nameSpan.innerHTML = highlightMatch(team.displayName || team.name, searchTerm);
 
         const favBtn = document.createElement("button");
-        favBtn.className = "fav-btn" + (favoriteTeam === team.name ? " active" : "");
-        favBtn.textContent = "★";
-        favBtn.title = favoriteTeam === team.name ? "Favorite" : "Set as Favorite";
-        favBtn.addEventListener("click", () => setFavorite(team.name));
+const favActive = isFavorite(team.name);
+favBtn.className = "fav-btn" + (favActive ? " active" : "");
+favBtn.textContent = "★";
+favBtn.title = favActive ? "Remove from Favorites" : `Add to Favorites (${favoriteTeams.length}/${MAX_FAVORITES})`;
+favBtn.setAttribute('aria-pressed', favActive ? 'true' : 'false');
+favBtn.addEventListener("click", () => toggleFavorite(team.name));
 
         const scoreSpan = document.createElement("span");
         const isWinner = (team === away && awayWin) || (team === home && homeWin);
@@ -566,8 +1008,31 @@ function filterEvents(events, q) {
       });
 
       const meta = document.createElement("div");
-      meta.className = "game-meta";
-      meta.textContent = statusText;
+ meta.className = "game-meta";
+ // Status text + (today only) boxscore link for the home team
+ const st = comp?.status || {};
+ const type = st?.type || {};
+ const state = (type?.state || "").toLowerCase();
+ const statusSpan = document.createElement("span");
+ statusSpan.textContent = statusText;
+ meta.appendChild(statusSpan);
+ // Only show boxscore links for games on the current day
+ const isToday = (currentSelectedDate && currentSelectedDate.toDateString() === new Date().toDateString());
+ if (isToday && (state === "in" || state === "post")) {
+   const boxUrl = TEAM_BOX_URLS[normalizeTeamName(home?.name)];
+   if (boxUrl) {
+     const sep = document.createElement("span");
+     sep.textContent = "·";
+     const a = document.createElement("a");
+     a.className = "boxscore-link";
+     a.href = boxUrl;
+    // Opens in the same window for accessibility best practices
+     a.rel = "noopener";
+     a.textContent = (state === "in") ? "Live Boxscore" : "Final Boxscore";
+     meta.appendChild(sep);
+     meta.appendChild(a);
+   }
+ }
 
       li.appendChild(teamsBlock);
       li.appendChild(meta);
@@ -603,45 +1068,52 @@ function filterEvents(events, q) {
       }
       info.textContent = "";
 
-      // Favorite section (only if favorite has games on this date)
-      if (favoriteTeam) {
-        const favoriteGames = filtered.filter(ev => {
-          const comp = ev?.competitions?.[0] || {};
-          const competitors = comp?.competitors || [];
-          const away = teamObj(competitors, "away");
-          const home = teamObj(competitors, "home");
-          return away?.name === favoriteTeam || home?.name === favoriteTeam;
-        });
+      // Favorites section (show games containing any favorited team)
+let shownFavoriteIds = new Set();
+if (Array.isArray(favoriteTeams) && favoriteTeams.length) {
+  const favoriteGames = filtered.filter(ev => {
+    const comp = ev?.competitions?.[0] || {};
+    const competitors = comp?.competitors || [];
+    const away = teamObj(competitors, 'away');
+    const home = teamObj(competitors, 'home');
+    return isFavorite(away?.name) || isFavorite(home?.name);
+  });
+  if (favoriteGames.length) {
+    const favHeader = document.createElement('h3');
+    favHeader.className = 'favorite-header';
+    favHeader.textContent = `Favorites (${favoriteTeams.length}/${MAX_FAVORITES})`;
+    gamesList.appendChild(favHeader);
 
-        if (favoriteGames.length) {
-          const favHeader = document.createElement("h3");
-          favHeader.className = "favorite-header";
-          favHeader.textContent = `Favorite: ${favoriteTeam}`;
-          gamesList.appendChild(favHeader);
+    const favActions = document.createElement('div');
+    favActions.className = 'favorite-actions';
 
-          const favActions = document.createElement("div");
-          favActions.className = "favorite-actions";
-          const clearBtn = document.createElement("button");
-          clearBtn.className = "clear-fav-btn";
-          clearBtn.textContent = "Clear Favorite";
-          clearBtn.addEventListener("click", clearFavorite);
-          favActions.appendChild(clearBtn);
-          gamesList.appendChild(favActions);
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'clear-fav-btn';
+    clearBtn.textContent = 'Clear Favorites';
+    clearBtn.addEventListener('click', clearFavorites);
+    favActions.appendChild(clearBtn);
 
-          favoriteGames.forEach(ev => {
-            const node = renderGame(ev);
-            if (node) gamesList.appendChild(node);
-          });
-        }
-      }
+    const listSpan = document.createElement('span');
+    listSpan.className = 'favorite-team-list';
+    listSpan.textContent = favoriteTeams.join(', ');
+    favActions.appendChild(listSpan);
 
-      // Remaining games (skip those already shown in Favorite section)
+    gamesList.appendChild(favActions);
+
+    favoriteGames.forEach(ev => {
+      const node = renderGame(ev);
+      if (node) gamesList.appendChild(node);
+      if (ev?.id) shownFavoriteIds.add(String(ev.id));
+    });
+  }
+}
+// Remaining games (skip those already shown in Favorites section)
       filtered.forEach(ev => {
         const comp = ev?.competitions?.[0] || {};
         const competitors = comp?.competitors || [];
         const away = teamObj(competitors, "away");
         const home = teamObj(competitors, "home");
-        if (favoriteTeam && (away?.name === favoriteTeam || home?.name === favoriteTeam)) return;
+        if (shownFavoriteIds.has(String(ev?.id || ''))) return;
         const node = renderGame(ev);
         if (node) gamesList.appendChild(node);
       });
@@ -649,11 +1121,13 @@ function filterEvents(events, q) {
 
     // --- Update flow ---
     async function updateScores(date) {
+ currentSelectedDate = date;
       info.textContent = "Loading scores…";
       renderDateStrip(date);
       try {
-        const events = await fetchScores(date);
-        lastEvents = events.slice();
+        const scoreboard = await fetchScores(date);
+  const events = Array.isArray(scoreboard?.events) ? scoreboard.events : [];
+  lastEvents = events.slice();
         renderGames(lastEvents);
         info.textContent = "";
       } catch (err) {
@@ -692,7 +1166,6 @@ function filterEvents(events, q) {
     }
   });
 
-
   // Populate conference dropdown (and restore last selection)
   (function initConferenceSelect() {
     if (!confSelect) return;
@@ -703,6 +1176,11 @@ function filterEvents(events, q) {
     optAll.textContent = 'All conferences';
     confSelect.appendChild(optAll);
 
+ const optTop25 = document.createElement('option');
+ optTop25.value = '__TOP25__';
+ optTop25.textContent = 'Top 25';
+ confSelect.appendChild(optTop25);
+
     Object.keys(CONFERENCE_TEAMS)
       .sort((a,b)=>a.localeCompare(b))
       .forEach(conf => {
@@ -712,7 +1190,7 @@ function filterEvents(events, q) {
         confSelect.appendChild(opt);
       });
 
-    if (selectedConference && !CONFERENCE_TEAMS[selectedConference]) {
+    if (selectedConference && selectedConference !== '__TOP25__' && !CONFERENCE_TEAMS[selectedConference]) {
       selectedConference = '';
       localStorage.removeItem(CONF_SELECT_STORAGE_KEY);
     }
@@ -746,8 +1224,7 @@ function filterEvents(events, q) {
       teamSearch.addEventListener("keydown", (e) => {
         if (e.key === "Enter") e.preventDefault();
       });
-
-      // Initial load
+ // Initial load
       updateScores(now);
     })();
   </script>
